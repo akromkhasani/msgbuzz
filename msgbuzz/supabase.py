@@ -1,3 +1,4 @@
+import concurrent.futures as cf
 import logging
 import multiprocessing
 import signal
@@ -42,15 +43,27 @@ class SupabaseMessageBus(MessageBus):
         client_group: str,
         callback: CallbackType,
         check_interval_seconds: int = 5,
+        batch_size: int = 1,
+        max_threads: int = 5,
     ):
-        self._subscribers[topic_name] = (callback, check_interval_seconds)
+        self._subscribers[topic_name] = (
+            callback,
+            check_interval_seconds,
+            max(1, batch_size),
+            max(1, max_threads),
+        )
 
     def start_consuming(self):
         consumer_count = len(self._subscribers)
         if consumer_count == 0:
             return
 
-        for topic_name, (callback, check_interval) in self._subscribers.items():
+        for topic_name, (
+            callback,
+            check_interval,
+            batch_size,
+            max_threads,
+        ) in self._subscribers.items():
             consumer = SupabaseConsumer(
                 self.supabase_url,
                 self.supabase_key,
@@ -58,6 +71,8 @@ class SupabaseMessageBus(MessageBus):
                 callback,
                 self.message_timeout,
                 check_interval,
+                batch_size,
+                max_threads,
             )
             if consumer_count == 1:
                 # one consumer just use current process
@@ -76,6 +91,8 @@ class SupabaseConsumer(multiprocessing.Process):
         callback: CallbackType,
         message_timeout: int,
         check_interval: int,
+        batch_size: int,
+        max_threads: int,
     ):
         super().__init__()
         self.supabase_url = supabase_url
@@ -84,6 +101,8 @@ class SupabaseConsumer(multiprocessing.Process):
         self.callback = callback
         self.message_timeout = message_timeout
         self.check_interval = check_interval
+        self.batch_size = batch_size
+        self.max_threads = max_threads
 
     def run(self):
         client_options = ClientOptions()
@@ -107,34 +126,37 @@ class SupabaseConsumer(multiprocessing.Process):
                 {
                     "queue_name": self.topic_name,
                     "sleep_seconds": self.message_timeout,
-                    "n": 1,
+                    "n": self.batch_size,
                 },
             ).execute()
 
             if resp.data:
-                msg_meta = resp.data[0]
-                message = msg_meta.pop("message")
-                confirm = SupabaseConsumerConfirm(
-                    client, self.topic_name, msg_meta, message
-                )
-
-                if self.message_expired(message):
-                    confirm.nack()
-                    continue
-
-                try:
-                    actual_message = message["_body"].encode("utf-8")
-                except Exception:
-                    _logger.warning("Invalid message format")
-                    confirm.nack()
-                    continue
-
-                self.callback(confirm, actual_message)
+                with cf.ThreadPoolExecutor(
+                    max_workers=min(self.batch_size, self.max_threads)
+                ) as executor:
+                    list(executor.map(partial(self.process_data, client), resp.data))
 
             else:
                 time.sleep(self.check_interval)
 
         _logger.info(f"Consumer stopped")
+
+    def process_data(self, client: Client, msg_obj: dict) -> None:
+        message = msg_obj["message"]
+        confirm = SupabaseConsumerConfirm(
+            client, self.topic_name, msg_obj["msg_id"], message
+        )
+
+        if self.message_expired(message):
+            return confirm.nack()
+
+        try:
+            actual_message = message["_body"].encode("utf-8")
+        except Exception:
+            _logger.warning("Invalid message format")
+            return confirm.nack()
+
+        self.callback(confirm, actual_message)
 
     @staticmethod
     def message_expired(message: dict) -> bool:
@@ -155,10 +177,10 @@ def signal_handler(signum, frame, breaker: dict):
 
 
 class SupabaseConsumerConfirm(ConsumerConfirm):
-    def __init__(self, client: Client, topic_name: str, msg_meta: dict, message: dict):
+    def __init__(self, client: Client, topic_name: str, msg_id: int, message: dict):
         self.client = client
         self.topic_name = topic_name
-        self.msg_id = msg_meta["msg_id"]
+        self.msg_id = msg_id
         self.message = message
 
     def ack(self):
