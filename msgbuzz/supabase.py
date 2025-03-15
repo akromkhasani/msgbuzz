@@ -8,7 +8,7 @@ from typing import Callable
 
 from supabase import Client, ClientOptions, create_client
 
-from msgbuzz import ConsumerConfirm, MessageBus
+from . import ConsumerConfirm, MessageBus
 
 _logger = logging.getLogger(__name__)
 
