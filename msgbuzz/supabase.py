@@ -109,6 +109,9 @@ class SupabaseConsumer(multiprocessing.Process):
         client_options.schema = "pgmq_public"
         client = create_client(self.supabase_url, self.supabase_key, client_options)
 
+        max_workers = min(self.batch_size, self.max_threads)
+        process_data_fn = partial(self.process_data, client)
+
         _logger.info(
             f"Waiting incoming message for topic: {self.topic_name}. To exit press Ctrl+C"
         )
@@ -131,10 +134,8 @@ class SupabaseConsumer(multiprocessing.Process):
             ).execute()
 
             if resp.data:
-                with cf.ThreadPoolExecutor(
-                    max_workers=min(self.batch_size, self.max_threads)
-                ) as executor:
-                    list(executor.map(partial(self.process_data, client), resp.data))
+                with cf.ThreadPoolExecutor(max_workers) as executor:
+                    list(executor.map(process_data_fn, resp.data))
 
             else:
                 time.sleep(self.check_interval)
