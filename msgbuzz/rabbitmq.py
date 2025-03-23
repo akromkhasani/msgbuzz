@@ -14,9 +14,10 @@ _logger = logging.getLogger(__name__)
 
 class RabbitMqMessageBus(MessageBus):
 
-    def __init__(self, host='localhost', port=5672, **kwargs):
+    def __init__(self, host='localhost', port=5672, url=None, **kwargs):
         self.host = host
         self.port = port
+        self.url = url
         self.kwargs = kwargs
         self._subscribers = {}
         self._consumers = []
@@ -25,6 +26,8 @@ class RabbitMqMessageBus(MessageBus):
 
     @property
     def _conn_params(self):
+        if self.url:
+            return pika.URLParameters(self.url)
         return pika.ConnectionParameters(self.host, self.port, credentials=self._credentials, **self.kwargs)
 
     @property
