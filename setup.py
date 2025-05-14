@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="msgbuzz",
-    version="0.2.0",
+    version="0.2.1",
     author="Hendra Setiawan",
     author_email="sihendra@gmail.com",
     description="Generic message bus abstraction. Supported implementation: RabbitMQ through Pika, Supabase Queue",
@@ -16,6 +16,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=open("requirements.txt", "r").readlines(),
-    extras_require={"supabase": ["supabase~=2.13.0"]},
+    extras_require={"supabase": ["supabase~=2.15.1"]},
     python_requires=">=3.9",
 )
