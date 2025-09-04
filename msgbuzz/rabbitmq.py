@@ -1,6 +1,5 @@
 import logging
 import multiprocessing
-import threading
 
 import pika
 from pika.channel import Channel
@@ -106,8 +105,7 @@ class RabbitMqConsumer(multiprocessing.Process):
         channel.basic_qos(prefetch_count=1)
 
         # start consuming
-        threads = []
-        wrapped_callback = _callback_wrapper(conn, self._name_generator, self._callback, threads)
+        wrapped_callback = _callback_wrapper(conn, self._name_generator, self._callback)
         channel.basic_consume(queue=self._name_generator.queue_name(), auto_ack=False,
                               on_message_callback=wrapped_callback)
 
@@ -117,10 +115,6 @@ class RabbitMqConsumer(multiprocessing.Process):
             channel.start_consuming()
         except KeyboardInterrupt:
             channel.stop_consuming()
-
-        # Wait for all to complete
-        for thread in threads:
-            thread.join()
 
         conn.close()
 
@@ -234,7 +228,7 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
         self._conn.add_callback_threadsafe(cb)
 
 
-def _callback_wrapper(conn, names_gen: RabbitMqQueueNameGenerator, callback, threads):
+def _callback_wrapper(conn, names_gen: RabbitMqQueueNameGenerator, callback):
     """
     Wrapper for callback. since nested function cannot be pickled, we need some top level function to wrap it
 
@@ -250,10 +244,6 @@ def _callback_wrapper(conn, names_gen: RabbitMqQueueNameGenerator, callback, thr
             ch.basic_nack(method.delivery_tag, requeue=False)
             return
 
-        t = threading.Thread(target=callback,
-                             args=(RabbitMqConsumerConfirm(conn, names_gen, ch, method, properties, body), body))
-        t.start()
-        _logger.debug("Thread started")
-        threads.append(t)
+        callback(RabbitMqConsumerConfirm(conn, names_gen, ch, method, properties, body), body)
 
     return fn
