@@ -43,13 +43,33 @@ class RabbitMqMessageBus(MessageBus):
         return self.__credentials
 
     def publish(
-        self, topic_name, message: bytes, create_exchange: bool = False, **kwargs
+        self,
+        topic_name,
+        message: bytes,
+        priority: int = 0,
+        persistent: bool = False,
+        create_exchange: bool = False,
+        **kwargs,
     ):
         try:
-            self._publish(topic_name, message, create_exchange, **kwargs)
+            self._publish(
+                topic_name,
+                message,
+                priority=priority,
+                persistent=persistent,
+                create_exchange=create_exchange,
+                **kwargs,
+            )
         except AMQPError:
             _logger.info("Connection closed: reconnecting to rabbitmq")
-            self._publish(topic_name, message, create_exchange, **kwargs)
+            self._publish(
+                topic_name,
+                message,
+                priority=priority,
+                persistent=persistent,
+                create_exchange=create_exchange,
+                **kwargs,
+            )
 
     def on(self, topic_name, client_group, callback):
         self._subscribers[topic_name] = (client_group, callback)
@@ -82,7 +102,15 @@ class RabbitMqMessageBus(MessageBus):
         if not self._conn or self._conn.is_closed:
             self._conn = pika.BlockingConnection(self._conn_params)
 
-    def _publish(self, topic_name, message, create_exchange: bool, **kwargs):
+    def _publish(
+        self,
+        topic_name,
+        message,
+        priority: int,
+        persistent: bool,
+        create_exchange: bool,
+        **kwargs,
+    ):
         self._connect()
         channel = self._conn.channel()
 
@@ -94,7 +122,14 @@ class RabbitMqMessageBus(MessageBus):
                 exchange=exchange_name, exchange_type="fanout", durable=True
             )
 
-        channel.basic_publish(exchange=exchange_name, routing_key="", body=message)
+        channel.basic_publish(
+            exchange=exchange_name,
+            routing_key="",
+            body=message,
+            properties=BasicProperties(
+                delivery_mode=2 if persistent else 1, priority=priority
+            ),
+        )
         channel.close()
 
 
