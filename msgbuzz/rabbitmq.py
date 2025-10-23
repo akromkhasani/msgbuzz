@@ -98,9 +98,11 @@ class RabbitMqMessageBus(MessageBus):
             self._consumers.append(consumer)
             consumer.start()
 
-    def _connect(self):
+    @property
+    def conn(self):
         if not self._conn or self._conn.is_closed:
             self._conn = pika.BlockingConnection(self._conn_params)
+        return self._conn
 
     def _publish(
         self,
@@ -111,8 +113,7 @@ class RabbitMqMessageBus(MessageBus):
         create_exchange: bool,
         **kwargs,
     ):
-        self._connect()
-        channel = self._conn.channel()
+        channel = self.conn.channel()
 
         exchange_name = RabbitMqQueueNameGenerator(topic_name, "").exchange_name()
         if create_exchange:
