@@ -13,10 +13,13 @@ _logger = logging.getLogger(__name__)
 
 class RabbitMqMessageBus(MessageBus):
 
-    def __init__(self, host="localhost", port=5672, url=None, **kwargs):
+    def __init__(
+        self, host="localhost", port=5672, url=None, max_priority: int = 0, **kwargs
+    ):
         self.host = host
         self.port = port
         self.url = url
+        self.max_priority = max_priority
         self.kwargs = kwargs
         self._subscribers = {}
         self._consumers = []
@@ -61,7 +64,7 @@ class RabbitMqMessageBus(MessageBus):
             topic_name = next(iter(self._subscribers))
             client_group, callback = self._subscribers[topic_name]
             consumer = RabbitMqConsumer(
-                self._conn_params, topic_name, client_group, callback
+                self._conn_params, topic_name, client_group, callback, self.max_priority
             )
             self._consumers.append(consumer)
             consumer.run()
@@ -70,7 +73,7 @@ class RabbitMqMessageBus(MessageBus):
         # multiple consumers use child process
         for topic_name, (client_group, callback) in self._subscribers.items():
             consumer = RabbitMqConsumer(
-                self._conn_params, topic_name, client_group, callback
+                self._conn_params, topic_name, client_group, callback, self.max_priority
             )
             self._consumers.append(consumer)
             consumer.start()
@@ -97,13 +100,16 @@ class RabbitMqMessageBus(MessageBus):
 
 class RabbitMqConsumer(multiprocessing.Process):
 
-    def __init__(self, conn_params, topic_name, client_group, callback):
+    def __init__(
+        self, conn_params, topic_name, client_group, callback, max_priority: int = 0
+    ):
         super().__init__()
         self._conn_params = conn_params
         self._topic_name = topic_name
         self._client_group = client_group
         self._name_generator = RabbitMqQueueNameGenerator(topic_name, client_group)
         self._callback = callback
+        self._max_priority = max_priority
 
     def run(self):
         # create new conn
@@ -153,6 +159,7 @@ class RabbitMqConsumer(multiprocessing.Process):
             arguments={
                 "x-dead-letter-exchange": q_names.dlx_exchange(),
                 "x-dead-letter-routing-key": q_names.dlx_queue_name(),
+                "x-max-priority": self._max_priority,
             },
         )
         # bind created queue with pub/sub exchange
