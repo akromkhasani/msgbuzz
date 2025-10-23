@@ -6,14 +6,14 @@ from pika.channel import Channel
 from pika.exceptions import AMQPError
 from pika.spec import Basic, BasicProperties
 
-from msgbuzz import MessageBus, ConsumerConfirm
+from msgbuzz import ConsumerConfirm, MessageBus
 
 _logger = logging.getLogger(__name__)
 
 
 class RabbitMqMessageBus(MessageBus):
 
-    def __init__(self, host='localhost', port=5672, url=None, **kwargs):
+    def __init__(self, host="localhost", port=5672, url=None, **kwargs):
         self.host = host
         self.port = port
         self.url = url
@@ -27,7 +27,9 @@ class RabbitMqMessageBus(MessageBus):
     def _conn_params(self):
         if self.url:
             return pika.URLParameters(self.url)
-        return pika.ConnectionParameters(self.host, self.port, credentials=self._credentials, **self.kwargs)
+        return pika.ConnectionParameters(
+            self.host, self.port, credentials=self._credentials, **self.kwargs
+        )
 
     @property
     def _credentials(self):
@@ -37,12 +39,14 @@ class RabbitMqMessageBus(MessageBus):
             self.__credentials = pika.PlainCredentials(username, password)
         return self.__credentials
 
-    def publish(self, topic_name, message: bytes):
+    def publish(
+        self, topic_name, message: bytes, create_exchange: bool = False, **kwargs
+    ):
         try:
-            self._publish(topic_name, message)
+            self._publish(topic_name, message, create_exchange, **kwargs)
         except AMQPError:
             _logger.info("Connection closed: reconnecting to rabbitmq")
-            self._publish(topic_name, message)
+            self._publish(topic_name, message, create_exchange, **kwargs)
 
     def on(self, topic_name, client_group, callback):
         self._subscribers[topic_name] = (client_group, callback)
@@ -56,14 +60,18 @@ class RabbitMqMessageBus(MessageBus):
         if consumer_count == 1:
             topic_name = next(iter(self._subscribers))
             client_group, callback = self._subscribers[topic_name]
-            consumer = RabbitMqConsumer(self._conn_params, topic_name, client_group, callback)
+            consumer = RabbitMqConsumer(
+                self._conn_params, topic_name, client_group, callback
+            )
             self._consumers.append(consumer)
             consumer.run()
             return
 
         # multiple consumers use child process
         for topic_name, (client_group, callback) in self._subscribers.items():
-            consumer = RabbitMqConsumer(self._conn_params, topic_name, client_group, callback)
+            consumer = RabbitMqConsumer(
+                self._conn_params, topic_name, client_group, callback
+            )
             self._consumers.append(consumer)
             consumer.start()
 
@@ -71,17 +79,19 @@ class RabbitMqMessageBus(MessageBus):
         if not self._conn or self._conn.is_closed:
             self._conn = pika.BlockingConnection(self._conn_params)
 
-    def _publish(self, topic_name, message):
+    def _publish(self, topic_name, message, create_exchange: bool, **kwargs):
         self._connect()
         channel = self._conn.channel()
 
-        # create exchange before publish
-        # we cannot publish to non existing exchange
-        q_names = RabbitMqQueueNameGenerator(topic_name, "")
-        exchange_name = q_names.exchange_name()
-        channel.exchange_declare(exchange=exchange_name, exchange_type='fanout', durable=True)
+        exchange_name = RabbitMqQueueNameGenerator(topic_name, "").exchange_name()
+        if create_exchange:
+            # create exchange before publish
+            # we cannot publish to non existing exchange
+            channel.exchange_declare(
+                exchange=exchange_name, exchange_type="fanout", durable=True
+            )
 
-        channel.basic_publish(exchange=exchange_name, routing_key='', body=message)
+        channel.basic_publish(exchange=exchange_name, routing_key="", body=message)
         channel.close()
 
 
@@ -106,11 +116,15 @@ class RabbitMqConsumer(multiprocessing.Process):
 
         # start consuming
         wrapped_callback = _callback_wrapper(conn, self._name_generator, self._callback)
-        channel.basic_consume(queue=self._name_generator.queue_name(), auto_ack=False,
-                              on_message_callback=wrapped_callback)
+        channel.basic_consume(
+            queue=self._name_generator.queue_name(),
+            auto_ack=False,
+            on_message_callback=wrapped_callback,
+        )
 
         _logger.info(
-            f"Waiting incoming message for topic: {self._name_generator.exchange_name()}. To exit press Ctrl+C")
+            f"Waiting incoming message for topic: {self._name_generator.exchange_name()}. To exit press Ctrl+C"
+        )
         try:
             channel.start_consuming()
         except KeyboardInterrupt:
@@ -125,32 +139,48 @@ class RabbitMqConsumer(multiprocessing.Process):
         # create dlx exchange and queue
         channel.exchange_declare(exchange=q_names.dlx_exchange(), durable=True)
         channel.queue_declare(queue=q_names.dlx_queue_name(), durable=True)
-        channel.queue_bind(exchange=q_names.dlx_exchange(), queue=q_names.dlx_queue_name())
+        channel.queue_bind(
+            exchange=q_names.dlx_exchange(), queue=q_names.dlx_queue_name()
+        )
         # create exchange for pub/sub
-        channel.exchange_declare(exchange=q_names.exchange_name(), exchange_type='fanout', durable=True)
+        channel.exchange_declare(
+            exchange=q_names.exchange_name(), exchange_type="fanout", durable=True
+        )
         # create dedicated queue for receiving message (create subscriber)
-        channel.queue_declare(queue=q_names.queue_name(),
-                              durable=True,
-                              arguments={'x-dead-letter-exchange': q_names.dlx_exchange(),
-                                         'x-dead-letter-routing-key': q_names.dlx_queue_name()})
+        channel.queue_declare(
+            queue=q_names.queue_name(),
+            durable=True,
+            arguments={
+                "x-dead-letter-exchange": q_names.dlx_exchange(),
+                "x-dead-letter-routing-key": q_names.dlx_queue_name(),
+            },
+        )
         # bind created queue with pub/sub exchange
         channel.queue_bind(exchange=q_names.exchange_name(), queue=q_names.queue_name())
         # setup retry requeue exchange and binding
         channel.exchange_declare(exchange=q_names.retry_exchange(), durable=True)
-        channel.queue_bind(exchange=q_names.retry_exchange(), queue=q_names.queue_name())
+        channel.queue_bind(
+            exchange=q_names.retry_exchange(), queue=q_names.queue_name()
+        )
         # create retry queue
-        channel.queue_declare(queue=q_names.retry_queue_name(),
-                              durable=True,
-                              arguments={
-                                  "x-dead-letter-exchange": q_names.retry_exchange(),
-                                  "x-dead-letter-routing-key": q_names.queue_name()})
+        channel.queue_declare(
+            queue=q_names.retry_queue_name(),
+            durable=True,
+            arguments={
+                "x-dead-letter-exchange": q_names.retry_exchange(),
+                "x-dead-letter-routing-key": q_names.queue_name(),
+            },
+        )
 
     @staticmethod
     def message_expired(properties):
-        return properties.headers \
-               and properties.headers.get("x-death") \
-               and properties.headers.get("x-max-retries") \
-               and properties.headers.get("x-death")[0]["count"] > properties.headers.get("x-max-retries")
+        return (
+            properties.headers
+            and properties.headers.get("x-death")
+            and properties.headers.get("x-max-retries")
+            and properties.headers.get("x-death")[0]["count"]
+            > properties.headers.get("x-max-retries")
+        )
 
 
 class RabbitMqQueueNameGenerator:
@@ -163,7 +193,7 @@ class RabbitMqQueueNameGenerator:
         return self._topic_name
 
     def queue_name(self):
-        return f'{self._topic_name}.{self._client_group}'
+        return f"{self._topic_name}.{self._client_group}"
 
     def retry_exchange(self):
         return self.retry_queue_name()
@@ -180,8 +210,15 @@ class RabbitMqQueueNameGenerator:
 
 class RabbitMqConsumerConfirm(ConsumerConfirm):
 
-    def __init__(self, conn, names_gen: RabbitMqQueueNameGenerator, channel: Channel, delivery: Basic.Deliver,
-                 properties: BasicProperties, body):
+    def __init__(
+        self,
+        conn,
+        names_gen: RabbitMqQueueNameGenerator,
+        channel: Channel,
+        delivery: Basic.Deliver,
+        properties: BasicProperties,
+        body,
+    ):
         """
         Create instance of RabbitMqConsumerConfirm
 
@@ -207,7 +244,9 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
 
     def nack(self):
         def cb():
-            self._channel.basic_nack(delivery_tag=self._delivery.delivery_tag, requeue=False)
+            self._channel.basic_nack(
+                delivery_tag=self._delivery.delivery_tag, requeue=False
+            )
 
         self._conn.add_callback_threadsafe(cb)
 
@@ -217,10 +256,12 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
             self._properties.expiration = str(delay)
             if self._properties.headers is None:
                 self._properties.headers = {}
-            self._properties.headers['x-max-retries'] = max_retries
+            self._properties.headers["x-max-retries"] = max_retries
 
             q_names = self.names_gen
-            self._channel.basic_publish("", q_names.retry_queue_name(), self._body, properties=self._properties)
+            self._channel.basic_publish(
+                "", q_names.retry_queue_name(), self._body, properties=self._properties
+            )
 
             # ack
             self._channel.basic_ack(delivery_tag=self._delivery.delivery_tag)
@@ -244,6 +285,8 @@ def _callback_wrapper(conn, names_gen: RabbitMqQueueNameGenerator, callback):
             ch.basic_nack(method.delivery_tag, requeue=False)
             return
 
-        callback(RabbitMqConsumerConfirm(conn, names_gen, ch, method, properties, body), body)
+        callback(
+            RabbitMqConsumerConfirm(conn, names_gen, ch, method, properties, body), body
+        )
 
     return fn
