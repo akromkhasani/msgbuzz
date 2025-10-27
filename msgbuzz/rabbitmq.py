@@ -213,6 +213,12 @@ class RabbitMqConsumer(multiprocessing.Process):
             exchange=q_names.exchange_name(), exchange_type="fanout", durable=True
         )
         # create dedicated queue for receiving message (create subscriber)
+        queue_args: dict = {
+            "x-dead-letter-exchange": q_names.dlx_exchange(),
+            "x-dead-letter-routing-key": q_names.dlx_queue_name(),
+        }
+        if self._max_priority is not None:
+            queue_args["x-max-priority"] = self._max_priority
         channel.queue_declare(
             queue=q_names.queue_name(),
             durable=True,
