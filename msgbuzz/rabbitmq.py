@@ -156,9 +156,19 @@ class RabbitMqConsumer(multiprocessing.Process):
         # create channel
         channel = conn.channel()
 
-        signal.signal(signal.SIGINT, partial(_stop_consuming, chan=channel))
+        prev_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(
+            signal.SIGINT,
+            partial(_stop_consuming, chan=channel, prev_handler=prev_sigint_handler),
+        )
         if hasattr(signal, "SIGTERM"):
-            signal.signal(signal.SIGTERM, partial(_stop_consuming, chan=channel))
+            prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            signal.signal(
+                signal.SIGTERM,
+                partial(
+                    _stop_consuming, chan=channel, prev_handler=prev_sigterm_handler
+                ),
+            )
 
         self.register_queues(channel)
         channel.basic_qos(prefetch_count=1)
@@ -230,9 +240,17 @@ class RabbitMqConsumer(multiprocessing.Process):
         )
 
 
-def _stop_consuming(signum, frame, chan):
+def _stop_consuming(signum, frame, chan, prev_handler):
     _logger.warning("Stopping consumer...")
     chan.stop_consuming()
+    _logger.info("Consumer stopped")
+
+    _signal = signal.Signals(signum)
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class RabbitMqQueueNameGenerator:
