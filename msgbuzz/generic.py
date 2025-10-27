@@ -25,7 +25,7 @@ class ConsumerConfirm:
 class MessageBus:
 
     @abstractmethod
-    def publish(self, topic_name, message: bytes):
+    def publish(self, topic_name, message: bytes, **kwargs):
         pass
 
     @abstractmethod
