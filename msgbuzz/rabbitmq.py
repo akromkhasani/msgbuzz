@@ -220,13 +220,7 @@ class RabbitMqConsumer(multiprocessing.Process):
         if self._max_priority is not None:
             queue_args["x-max-priority"] = self._max_priority
         channel.queue_declare(
-            queue=q_names.queue_name(),
-            durable=True,
-            arguments={
-                "x-dead-letter-exchange": q_names.dlx_exchange(),
-                "x-dead-letter-routing-key": q_names.dlx_queue_name(),
-                "x-max-priority": self._max_priority,
-            },
+            queue=q_names.queue_name(), durable=True, arguments=queue_args
         )
         # bind created queue with pub/sub exchange
         channel.queue_bind(exchange=q_names.exchange_name(), queue=q_names.queue_name())
