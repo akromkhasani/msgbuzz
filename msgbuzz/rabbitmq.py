@@ -16,7 +16,12 @@ _logger = logging.getLogger(__name__)
 class RabbitMqMessageBus(MessageBus):
 
     def __init__(
-        self, host="localhost", port=5672, url=None, max_priority: int = 0, **kwargs
+        self,
+        host="localhost",
+        port=5672,
+        url=None,
+        max_priority: int | None = None,
+        **kwargs,
     ):
         self.host = host
         self.port = port
@@ -139,7 +144,12 @@ class RabbitMqMessageBus(MessageBus):
 class RabbitMqConsumer(multiprocessing.Process):
 
     def __init__(
-        self, conn_params, topic_name, client_group, callback, max_priority: int = 0
+        self,
+        conn_params,
+        topic_name,
+        client_group,
+        callback,
+        max_priority: int | None = None,
     ):
         super().__init__()
         self._conn_params = conn_params
