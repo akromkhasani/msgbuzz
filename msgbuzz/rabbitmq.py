@@ -253,7 +253,6 @@ class RabbitMqConsumer(multiprocessing.Process):
 def _stop_consuming(signum, frame, chan, prev_handler):
     _logger.warning("Stopping consumer...")
     chan.stop_consuming()
-    _logger.info("Consumer stopped")
 
     _signal = signal.Signals(signum)
     if callable(prev_handler):
