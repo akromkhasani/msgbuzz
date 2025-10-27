@@ -1,5 +1,7 @@
 import logging
 import multiprocessing
+import signal
+from functools import partial
 
 import pika
 from pika.channel import Channel
@@ -153,6 +155,11 @@ class RabbitMqConsumer(multiprocessing.Process):
 
         # create channel
         channel = conn.channel()
+
+        signal.signal(signal.SIGINT, partial(_stop_consuming, chan=channel))
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, partial(_stop_consuming, chan=channel))
+
         self.register_queues(channel)
         channel.basic_qos(prefetch_count=1)
 
@@ -167,10 +174,7 @@ class RabbitMqConsumer(multiprocessing.Process):
         _logger.info(
             f"Waiting incoming message for topic: {self._name_generator.exchange_name()}. To exit press Ctrl+C"
         )
-        try:
-            channel.start_consuming()
-        except KeyboardInterrupt:
-            channel.stop_consuming()
+        channel.start_consuming()
 
         conn.close()
 
@@ -224,6 +228,11 @@ class RabbitMqConsumer(multiprocessing.Process):
             and properties.headers.get("x-death")[0]["count"]
             > properties.headers.get("x-max-retries")
         )
+
+
+def _stop_consuming(signum, frame, chan):
+    _logger.warning("Stopping consumer...")
+    chan.stop_consuming()
 
 
 class RabbitMqQueueNameGenerator:
@@ -299,7 +308,7 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
             self._properties.expiration = str(delay)
             if self._properties.headers is None:
                 self._properties.headers = {}
-            self._properties.headers["x-max-retries"] = max_retries
+            self._properties.headers["x-max-retries"] = max_retries  # type: ignore
 
             q_names = self.names_gen
             self._channel.basic_publish(
