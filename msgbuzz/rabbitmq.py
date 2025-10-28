@@ -163,8 +163,11 @@ class RabbitMqConsumer(multiprocessing.Process):
         # create new conn
         conn = pika.BlockingConnection(self._conn_params)
 
+        self.register_queues(conn)
+
         # create channel
         channel = conn.channel()
+        channel.basic_qos(prefetch_count=1)
 
         prev_sigint_handler = signal.getsignal(signal.SIGINT)
         signal.signal(
@@ -179,9 +182,6 @@ class RabbitMqConsumer(multiprocessing.Process):
                     _stop_consuming, chan=channel, prev_handler=prev_sigterm_handler
                 ),
             )
-
-        self.register_queues(channel)
-        channel.basic_qos(prefetch_count=1)
 
         # start consuming
         wrapped_callback = _callback_wrapper(conn, self._name_generator, self._callback)
@@ -200,8 +200,10 @@ class RabbitMqConsumer(multiprocessing.Process):
 
         _logger.info(f"Consumer stopped")
 
-    def register_queues(self, channel):
+    def register_queues(self, conn: pika.BlockingConnection):
         q_names = self._name_generator
+        channel = conn.channel()
+
         # create dlx exchange and queue
         channel.exchange_declare(exchange=q_names.dlx_exchange(), durable=True)
         channel.queue_declare(queue=q_names.dlx_queue_name(), durable=True)
@@ -225,6 +227,8 @@ class RabbitMqConsumer(multiprocessing.Process):
             )
         except Exception as e:
             _logger.warning("Error when declaring queue - %r", e)
+            if channel.is_closed:
+                channel = conn.channel()
         # bind created queue with pub/sub exchange
         channel.queue_bind(exchange=q_names.exchange_name(), queue=q_names.queue_name())
         # setup retry requeue exchange and binding
@@ -241,6 +245,8 @@ class RabbitMqConsumer(multiprocessing.Process):
                 "x-dead-letter-routing-key": q_names.queue_name(),
             },
         )
+
+        channel.close()
 
     @staticmethod
     def message_expired(properties):
