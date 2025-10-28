@@ -85,6 +85,7 @@ class RabbitMqMessageBus(MessageBus):
         if not self._subscribers:
             return
 
+        self._consumers = []
         for topic_name, (
             client_group,
             callback,
