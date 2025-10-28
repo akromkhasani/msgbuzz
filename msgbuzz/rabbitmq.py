@@ -15,21 +15,13 @@ _logger = logging.getLogger(__name__)
 
 class RabbitMqMessageBus(MessageBus):
 
-    def __init__(
-        self,
-        host="localhost",
-        port=5672,
-        url=None,
-        max_priority: int | None = None,
-        **kwargs,
-    ):
+    def __init__(self, host="localhost", port=5672, url=None, **kwargs):
         self.host = host
         self.port = port
         self.url = url
-        self.max_priority = max_priority
         self.kwargs = kwargs
         self._subscribers = {}
-        self._consumers = []
+        self._consumers: list[RabbitMqConsumer] = []
         self._conn = None
         self.__credentials = None
 
@@ -78,32 +70,40 @@ class RabbitMqMessageBus(MessageBus):
                 **kwargs,
             )
 
-    def on(self, topic_name, client_group, callback):
-        self._subscribers[topic_name] = (client_group, callback)
+    def on(
+        self,
+        topic_name,
+        client_group,
+        callback,
+        workers: int = 1,
+        max_priority: int | None = None,
+        **kwargs,
+    ):
+        self._subscribers[topic_name] = (client_group, callback, workers, max_priority)
 
     def start_consuming(self):
-        consumer_count = len(self._subscribers.items())
-        if consumer_count == 0:
+        if not self._subscribers:
             return
 
-        # one consumer just use current process
-        if consumer_count == 1:
-            topic_name = next(iter(self._subscribers))
-            client_group, callback = self._subscribers[topic_name]
-            consumer = RabbitMqConsumer(
-                self._conn_params, topic_name, client_group, callback, self.max_priority
-            )
-            self._consumers.append(consumer)
-            consumer.run()
-            return
+        for topic_name, (
+            client_group,
+            callback,
+            workers,
+            max_priority,
+        ) in self._subscribers.items():
+            for _ in range(workers):
+                consumer = RabbitMqConsumer(
+                    self._conn_params, topic_name, client_group, callback, max_priority
+                )
+                self._consumers.append(consumer)
 
-        # multiple consumers use child process
-        for topic_name, (client_group, callback) in self._subscribers.items():
-            consumer = RabbitMqConsumer(
-                self._conn_params, topic_name, client_group, callback, self.max_priority
-            )
-            self._consumers.append(consumer)
-            consumer.start()
+        # one consumer: use current process
+        # many consumers: use subprocesses
+        if len(self._consumers) == 1:
+            self._consumers[0].run()
+        else:
+            for c in self._consumers:
+                c.start()
 
     @property
     def conn(self):
@@ -219,9 +219,12 @@ class RabbitMqConsumer(multiprocessing.Process):
         }
         if self._max_priority is not None:
             queue_args["x-max-priority"] = self._max_priority
-        channel.queue_declare(
-            queue=q_names.queue_name(), durable=True, arguments=queue_args
-        )
+        try:
+            channel.queue_declare(
+                queue=q_names.queue_name(), durable=True, arguments=queue_args
+            )
+        except Exception as e:
+            _logger.warning("Error when declaring queue - %r", e)
         # bind created queue with pub/sub exchange
         channel.queue_bind(exchange=q_names.exchange_name(), queue=q_names.queue_name())
         # setup retry requeue exchange and binding

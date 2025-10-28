@@ -29,7 +29,7 @@ class MessageBus:
         pass
 
     @abstractmethod
-    def on(self, topic_name, client_group, callback):
+    def on(self, topic_name, client_group, callback, **kwargs):
         pass
 
     @abstractmethod
