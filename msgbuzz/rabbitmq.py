@@ -1,7 +1,6 @@
 import logging
 import multiprocessing
 import signal
-import sys
 from functools import partial
 from time import sleep
 
@@ -132,6 +131,26 @@ class RabbitMqMessageBus(MessageBus):
             for c in self._consumers:
                 c.start()
 
+            prev_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(
+                signal.SIGINT,
+                partial(
+                    _stop_consuming_main,
+                    procs=self._consumers,
+                    prev_handler=prev_sigint_handler,
+                ),
+            )
+            if hasattr(signal, "SIGTERM"):
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(
+                    signal.SIGTERM,
+                    partial(
+                        _stop_consuming_main,
+                        procs=self._consumers,
+                        prev_handler=prev_sigterm_handler,
+                    ),
+                )
+
     @property
     def conn(self):
         if not self._conn or self._conn.is_closed:
@@ -166,6 +185,30 @@ class RabbitMqMessageBus(MessageBus):
             ),
         )
         channel.close()
+
+
+def _stop_consuming_main(
+    signum,
+    frame,
+    procs: "list[RabbitMqConsumer|RabbitMqConsumer2]",
+    prev_handler=None,
+    timeout: int = 5,
+):
+    _logger.warning("Stopping subprocesses...")
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        p.join(timeout)
+    for p in procs:
+        if p.is_alive():
+            p.kill()
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class RabbitMqConsumer(multiprocessing.Process):
@@ -377,7 +420,9 @@ def _stop_consuming(
     if callable(prev_handler):
         prev_handler(signum, frame)
     elif prev_handler == signal.SIG_DFL:
-        sys.exit(128 + signum)
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class RabbitMqQueueNameGenerator:
