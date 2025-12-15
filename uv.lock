@@ -311,20 +311,12 @@ supabase = [
     { name = "supabase" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "supabase" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "pika", specifier = "~=1.3.2" },
     { name = "supabase", marker = "extra == 'supabase'", specifier = "~=2.25.1" },
 ]
 provides-extras = ["supabase"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "supabase", specifier = "~=2.25.1" }]
 
 [[package]]
 name = "multidict"
