@@ -28,7 +28,7 @@ class SupabaseMessageBus(MessageBus):
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
 
-    def publish(self, topic_name: str, message: bytes):
+    def publish(self, topic_name: str, message: bytes, **kwargs):
         self.client.rpc(
             "send",
             {
@@ -45,6 +45,7 @@ class SupabaseMessageBus(MessageBus):
         check_interval_seconds: int = 5,
         batch_size: int = 1,
         max_threads: int = 5,
+        **kwargs,
     ):
         self._subscribers[topic_name] = (
             callback,
@@ -52,6 +53,9 @@ class SupabaseMessageBus(MessageBus):
             max(1, batch_size),
             max(1, max_threads),
         )
+
+    def on2(self, *args, **kwargs):
+        self.on(*args, **kwargs)
 
     def start_consuming(self):
         consumer_count = len(self._subscribers)

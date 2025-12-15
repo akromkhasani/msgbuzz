@@ -33,5 +33,9 @@ class MessageBus:
         pass
 
     @abstractmethod
+    def on2(self, topic_name, client_group, callback, **kwargs):
+        pass
+
+    @abstractmethod
     def start_consuming(self):
         pass
