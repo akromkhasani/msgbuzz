@@ -24,7 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests", "examples"]
+exclude = ["tests", "tests*", "examples", "examples*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "msgbuzz.__version__" }
