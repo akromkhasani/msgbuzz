@@ -45,7 +45,7 @@ class SupabaseMessageBus(MessageBus):
         callback: CallbackType,
         check_interval_seconds: int = 5,
         batch_size: int = 1,
-        max_threads: int = 5,
+        max_threads: int = 1,
         **kwargs,
     ):
         self._subscribers[topic_name] = (
