@@ -1,0 +1,26 @@
+import logging
+import os
+
+from msgbuzz import ConsumerConfirm
+from msgbuzz.rabbitmq import RabbitMqMessageBus
+
+logger = logging.getLogger(__name__)
+
+
+def handle_message(op: ConsumerConfirm, message: bytes):
+    logger.info(message.decode("utf-8"))
+    op.ack()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-5.5s %(name)s: %(message)s",
+        level=os.getenv("LOG_LEVEL", "DEBUG").upper(),
+    )
+    logging.getLogger("pika").setLevel(logging.ERROR)
+
+    msg_bus = RabbitMqMessageBus()
+
+    msg_bus.on("topic", "worker", handle_message)
+
+    msg_bus.start_consuming()

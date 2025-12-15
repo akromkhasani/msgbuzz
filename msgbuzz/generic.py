@@ -12,7 +12,7 @@ class ConsumerConfirm:
         pass
 
     @abstractmethod
-    def retry(self, delay: int = 60_000, max_retries: int = 3):
+    def retry(self, delay: int = 60_000, max_retries: int = 3, ack: bool = True):
         """
         Retry the message
         :param delay: delay in milliseconds
@@ -30,6 +30,10 @@ class MessageBus:
 
     @abstractmethod
     def on(self, topic_name, client_group, callback, **kwargs):
+        pass
+
+    @abstractmethod
+    def on2(self, topic_name, client_group, callback, **kwargs):
         pass
 
     @abstractmethod

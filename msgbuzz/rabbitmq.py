@@ -2,8 +2,10 @@ import logging
 import multiprocessing
 import signal
 from functools import partial
+from time import sleep
 
 import pika
+from pika.adapters.blocking_connection import BlockingChannel
 from pika.channel import Channel
 from pika.exceptions import AMQPError
 from pika.spec import Basic, BasicProperties
@@ -21,7 +23,8 @@ class RabbitMqMessageBus(MessageBus):
         self.url = url
         self.kwargs = kwargs
         self._subscribers = {}
-        self._consumers: list[RabbitMqConsumer] = []
+        self._subscribers2 = {}
+        self._consumers: list[RabbitMqConsumer | RabbitMqConsumer2] = []
         self._conn = None
         self.__credentials = None
 
@@ -81,8 +84,19 @@ class RabbitMqMessageBus(MessageBus):
     ):
         self._subscribers[topic_name] = (client_group, callback, workers, max_priority)
 
+    def on2(
+        self,
+        topic_name,
+        client_group,
+        callback,
+        workers: int = 1,
+        max_priority: int | None = None,
+        **kwargs,
+    ):
+        self._subscribers2[topic_name] = (client_group, callback, workers, max_priority)
+
     def start_consuming(self):
-        if not self._subscribers:
+        if not self._subscribers and not self._subscribers2:
             return
 
         self._consumers = []
@@ -97,6 +111,17 @@ class RabbitMqMessageBus(MessageBus):
                     self._conn_params, topic_name, client_group, callback, max_priority
                 )
                 self._consumers.append(consumer)
+        for topic_name, (
+            client_group,
+            callback,
+            workers,
+            max_priority,
+        ) in self._subscribers2.items():
+            for _ in range(workers):
+                consumer = RabbitMqConsumer2(
+                    self._conn_params, topic_name, client_group, callback, max_priority
+                )
+                self._consumers.append(consumer)
 
         # one consumer: use current process
         # many consumers: use subprocesses
@@ -105,6 +130,26 @@ class RabbitMqMessageBus(MessageBus):
         else:
             for c in self._consumers:
                 c.start()
+
+            prev_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(
+                signal.SIGINT,
+                partial(
+                    _stop_consuming_main,
+                    procs=self._consumers,
+                    prev_handler=prev_sigint_handler,
+                ),
+            )
+            if hasattr(signal, "SIGTERM"):
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(
+                    signal.SIGTERM,
+                    partial(
+                        _stop_consuming_main,
+                        procs=self._consumers,
+                        prev_handler=prev_sigterm_handler,
+                    ),
+                )
 
     @property
     def conn(self):
@@ -142,6 +187,30 @@ class RabbitMqMessageBus(MessageBus):
         channel.close()
 
 
+def _stop_consuming_main(
+    signum,
+    frame,
+    procs: "list[RabbitMqConsumer|RabbitMqConsumer2]",
+    prev_handler=None,
+    timeout: int = 5,
+):
+    _logger.warning("Stopping subprocesses...")
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        p.join(timeout)
+    for p in procs:
+        if p.is_alive():
+            p.kill()
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
+
+
 class RabbitMqConsumer(multiprocessing.Process):
 
     def __init__(
@@ -170,17 +239,26 @@ class RabbitMqConsumer(multiprocessing.Process):
         channel = conn.channel()
         channel.basic_qos(prefetch_count=1)
 
+        breaker = {"break": False}
         prev_sigint_handler = signal.getsignal(signal.SIGINT)
         signal.signal(
             signal.SIGINT,
-            partial(_stop_consuming, chan=channel, prev_handler=prev_sigint_handler),
+            partial(
+                _stop_consuming,
+                chan=channel,
+                prev_handler=prev_sigint_handler,
+                breaker=breaker,
+            ),
         )
         if hasattr(signal, "SIGTERM"):
             prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(
                 signal.SIGTERM,
                 partial(
-                    _stop_consuming, chan=channel, prev_handler=prev_sigterm_handler
+                    _stop_consuming,
+                    chan=channel,
+                    prev_handler=prev_sigterm_handler,
+                    breaker=breaker,
                 ),
             )
 
@@ -260,14 +338,89 @@ class RabbitMqConsumer(multiprocessing.Process):
         )
 
 
-def _stop_consuming(signum, frame, chan, prev_handler):
-    _logger.warning("Stopping consumer...")
-    chan.stop_consuming()
+class RabbitMqConsumer2(RabbitMqConsumer):
+    def run(self):
+        # create new conn
+        conn = pika.BlockingConnection(self._conn_params)
 
-    _signal = signal.Signals(signum)
+        self.register_queues(conn)
+
+        # create channel
+        channel = conn.channel()
+
+        breaker = {"break": False}
+        prev_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(
+            signal.SIGINT,
+            partial(
+                _stop_consuming,
+                chan=channel,
+                prev_handler=prev_sigint_handler,
+                breaker=breaker,
+            ),
+        )
+        if hasattr(signal, "SIGTERM"):
+            prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            signal.signal(
+                signal.SIGTERM,
+                partial(
+                    _stop_consuming,
+                    chan=channel,
+                    prev_handler=prev_sigterm_handler,
+                    breaker=breaker,
+                ),
+            )
+
+        _logger.info(
+            f"Waiting incoming message for topic: {self._name_generator.exchange_name()}. To exit press Ctrl+C"
+        )
+
+        # start consuming
+        while True:
+            if breaker["break"]:
+                break
+
+            get_resp: tuple[
+                Basic.GetOk | None, BasicProperties | None, bytes | None
+            ] = channel.basic_get(self._name_generator.queue_name())
+            if not get_resp:
+                sleep(1)
+                continue
+
+            method, properties, body = get_resp
+            if not method or not properties:
+                sleep(1)
+                continue
+
+            if RabbitMqConsumer.message_expired(properties):
+                channel.basic_nack(method.delivery_tag, requeue=False)
+                continue
+
+            self._callback(
+                RabbitMqConsumerConfirm(
+                    conn, self._name_generator, channel, method, properties, body
+                ),
+                body,
+            )
+
+        conn.close()
+
+        _logger.info(f"Consumer stopped")
+
+
+def _stop_consuming(
+    signum, frame, chan=None, prev_handler=None, breaker: dict | None = None
+):
+    _logger.warning("Stopping consumer...")
+    if breaker is not None:
+        breaker["break"] = True
+    if chan:
+        chan.stop_consuming()
+
     if callable(prev_handler):
         prev_handler(signum, frame)
     elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
         signal.signal(_signal, signal.SIG_DFL)
         signal.raise_signal(_signal)
 
@@ -303,8 +456,8 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
         self,
         conn,
         names_gen: RabbitMqQueueNameGenerator,
-        channel: Channel,
-        delivery: Basic.Deliver,
+        channel: Channel | BlockingChannel,
+        delivery: Basic.Deliver | Basic.GetOk,
         properties: BasicProperties,
         body,
     ):
@@ -339,7 +492,7 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
 
         self._conn.add_callback_threadsafe(cb)
 
-    def retry(self, delay=60000, max_retries=3):
+    def retry(self, delay=60000, max_retries=3, ack: bool = True):
         def cb():
             # publish to retry queue
             self._properties.expiration = str(delay)
@@ -352,8 +505,9 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
                 "", q_names.retry_queue_name(), self._body, properties=self._properties
             )
 
-            # ack
-            self._channel.basic_ack(delivery_tag=self._delivery.delivery_tag)
+            if ack:
+                # ack
+                self._channel.basic_ack(delivery_tag=self._delivery.delivery_tag)
 
         self._conn.add_callback_threadsafe(cb)
 

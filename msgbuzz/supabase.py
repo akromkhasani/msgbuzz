@@ -3,6 +3,7 @@ import logging
 import multiprocessing
 import signal
 import time
+from collections.abc import Sequence
 from functools import partial
 from math import ceil
 from typing import Callable
@@ -28,7 +29,7 @@ class SupabaseMessageBus(MessageBus):
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
 
-    def publish(self, topic_name: str, message: bytes):
+    def publish(self, topic_name: str, message: bytes, **kwargs):
         self.client.rpc(
             "send",
             {
@@ -44,8 +45,14 @@ class SupabaseMessageBus(MessageBus):
         callback: CallbackType,
         check_interval_seconds: int = 5,
         batch_size: int = 1,
-        max_threads: int = 5,
+        max_threads: int = 1,
+        **kwargs,
     ):
+        """
+        Register callback fuction as consumer to a topic.
+
+        client_group arg is not used in this implementation.
+        """
         self._subscribers[topic_name] = (
             callback,
             check_interval_seconds,
@@ -53,11 +60,16 @@ class SupabaseMessageBus(MessageBus):
             max(1, max_threads),
         )
 
+    def on2(self, *args, **kwargs):
+        # TODO: implement on2
+        self.on(*args, **kwargs)
+
     def start_consuming(self):
         consumer_count = len(self._subscribers)
         if consumer_count == 0:
             return
 
+        consumers = []
         for topic_name, (
             callback,
             check_interval,
@@ -79,7 +91,53 @@ class SupabaseMessageBus(MessageBus):
                 consumer.run()
             else:
                 # multiple consumers use child process
+                consumers.append(consumer)
                 consumer.start()
+
+        if consumers:
+            prev_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(
+                signal.SIGINT,
+                partial(
+                    parent_signal_handler,
+                    procs=consumers,
+                    prev_handler=prev_sigint_handler,
+                ),
+            )
+            if hasattr(signal, "SIGTERM"):
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(
+                    signal.SIGTERM,
+                    partial(
+                        parent_signal_handler,
+                        procs=consumers,
+                        prev_handler=prev_sigterm_handler,
+                    ),
+                )
+
+
+def parent_signal_handler(
+    signum,
+    frame,
+    procs,
+    prev_handler=None,
+    timeout: int = 5,
+):
+    _logger.warning("Stopping subprocesses...")
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        p.join(timeout)
+    for p in procs:
+        if p.is_alive():
+            p.kill()
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class SupabaseConsumer(multiprocessing.Process):
@@ -117,28 +175,45 @@ class SupabaseConsumer(multiprocessing.Process):
         )
 
         breaker = {"break": False}
-        signal.signal(signal.SIGTERM, partial(signal_handler, breaker=breaker))
-        signal.signal(signal.SIGINT, partial(signal_handler, breaker=breaker))
+        prev_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(
+            signal.SIGINT,
+            partial(
+                child_signal_handler,
+                breaker=breaker,
+                prev_handler=prev_sigint_handler,
+            ),
+        )
+        if hasattr(signal, "SIGTERM"):
+            prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            signal.signal(
+                signal.SIGTERM,
+                partial(
+                    child_signal_handler,
+                    breaker=breaker,
+                    prev_handler=prev_sigterm_handler,
+                ),
+            )
 
-        while True:
-            if breaker["break"]:
-                break
+        with cf.ThreadPoolExecutor(max_workers) as executor:
+            while True:
+                if breaker["break"]:
+                    break
 
-            resp = client.rpc(
-                "read",
-                {
-                    "queue_name": self.topic_name,
-                    "sleep_seconds": self.message_timeout,
-                    "n": self.batch_size,
-                },
-            ).execute()
+                resp = client.rpc(
+                    "read",
+                    {
+                        "queue_name": self.topic_name,
+                        "sleep_seconds": self.message_timeout,
+                        "n": self.batch_size,
+                    },
+                ).execute()
 
-            if resp.data:
-                with cf.ThreadPoolExecutor(max_workers) as executor:
+                if resp.data and isinstance(resp.data, Sequence):
                     list(executor.map(process_data_fn, resp.data))
 
-            else:
-                time.sleep(self.check_interval)
+                else:
+                    time.sleep(self.check_interval)
 
         _logger.info(f"Consumer stopped")
 
@@ -171,10 +246,17 @@ class SupabaseConsumer(multiprocessing.Process):
         return False
 
 
-def signal_handler(signum, frame, breaker: dict):
-    _logger.warning(f"Received signal {signal.Signals(signum).name}")
-    if signum in (signal.SIGTERM, signal.SIGINT):
+def child_signal_handler(signum, frame, breaker: dict | None = None, prev_handler=None):
+    _logger.warning("Stopping consumer...")
+    if breaker is not None:
         breaker["break"] = True
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class SupabaseConsumerConfirm(ConsumerConfirm):
@@ -202,7 +284,7 @@ class SupabaseConsumerConfirm(ConsumerConfirm):
             },
         ).execute()
 
-    def retry(self, delay: int = 60_000, max_retries: int = 3):
+    def retry(self, delay: int = 60_000, max_retries: int = 3, ack: bool = True):
         delay = max(delay, 0)
         max_retries = max(max_retries, 1)
 
@@ -219,4 +301,6 @@ class SupabaseConsumerConfirm(ConsumerConfirm):
                 "sleep_seconds": ceil(delay / 1000),
             },
         ).execute()
-        return self.ack()
+        if ack:
+            self.ack()
+        return

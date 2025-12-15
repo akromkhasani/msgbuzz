@@ -1,0 +1,33 @@
+[project]
+name = "msgbuzz"
+description = "Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue."
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [{ name = "Akrom Khasani", email = "akromkhasani@gmail.com" }]
+requires-python = ">=3.9"
+dependencies = ["pika~=1.3.2"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: BSD License",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+supabase = ["supabase~=2.25.1"]
+
+[project.urls]
+Homepage = "https://github.com/akromkhasani/msgbuzz"
+
+[dependency-groups]
+dev = ["supabase~=2.25.1"]
+
+[build-system]
+requires = ["setuptools~=80.9.0", "wheel~=0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests", "examples"]
+
+[tool.setuptools.dynamic]
+version = { attr = "msgbuzz.__version__" }

@@ -1,2 +1,3 @@
-from .generic import MessageBus
-from .generic import ConsumerConfirm
+from .generic import ConsumerConfirm, MessageBus
+
+__version__ = "0.4.0"
