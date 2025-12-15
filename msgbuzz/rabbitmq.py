@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import signal
+import sys
 from functools import partial
 from time import sleep
 
@@ -195,17 +196,26 @@ class RabbitMqConsumer(multiprocessing.Process):
         channel = conn.channel()
         channel.basic_qos(prefetch_count=1)
 
+        breaker = {"break": False}
         prev_sigint_handler = signal.getsignal(signal.SIGINT)
         signal.signal(
             signal.SIGINT,
-            partial(_stop_consuming, chan=channel, prev_handler=prev_sigint_handler),
+            partial(
+                _stop_consuming,
+                chan=channel,
+                prev_handler=prev_sigint_handler,
+                breaker=breaker,
+            ),
         )
         if hasattr(signal, "SIGTERM"):
             prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(
                 signal.SIGTERM,
                 partial(
-                    _stop_consuming, chan=channel, prev_handler=prev_sigterm_handler
+                    _stop_consuming,
+                    chan=channel,
+                    prev_handler=prev_sigterm_handler,
+                    breaker=breaker,
                 ),
             )
 
@@ -299,14 +309,22 @@ class RabbitMqConsumer2(RabbitMqConsumer):
         prev_sigint_handler = signal.getsignal(signal.SIGINT)
         signal.signal(
             signal.SIGINT,
-            partial(_stop_consuming, breaker=breaker, prev_handler=prev_sigint_handler),
+            partial(
+                _stop_consuming,
+                chan=channel,
+                prev_handler=prev_sigint_handler,
+                breaker=breaker,
+            ),
         )
         if hasattr(signal, "SIGTERM"):
             prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(
                 signal.SIGTERM,
                 partial(
-                    _stop_consuming, breaker=breaker, prev_handler=prev_sigterm_handler
+                    _stop_consuming,
+                    chan=channel,
+                    prev_handler=prev_sigterm_handler,
+                    breaker=breaker,
                 ),
             )
 
@@ -347,18 +365,19 @@ class RabbitMqConsumer2(RabbitMqConsumer):
         _logger.info(f"Consumer stopped")
 
 
-def _stop_consuming(signum, frame, chan=None, prev_handler=None, breaker: dict = {}):
+def _stop_consuming(
+    signum, frame, chan=None, prev_handler=None, breaker: dict | None = None
+):
     _logger.warning("Stopping consumer...")
-    breaker["break"] = True
+    if breaker is not None:
+        breaker["break"] = True
     if chan:
         chan.stop_consuming()
 
-    _signal = signal.Signals(signum)
     if callable(prev_handler):
         prev_handler(signum, frame)
     elif prev_handler == signal.SIG_DFL:
-        signal.signal(_signal, signal.SIG_DFL)
-        signal.raise_signal(_signal)
+        sys.exit(128 + signum)
 
 
 class RabbitMqQueueNameGenerator:
