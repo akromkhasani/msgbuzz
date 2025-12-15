@@ -12,7 +12,7 @@ class ConsumerConfirm:
         pass
 
     @abstractmethod
-    def retry(self, delay: int = 60_000, max_retries: int = 3):
+    def retry(self, delay: int = 60_000, max_retries: int = 3, ack: bool = True):
         """
         Retry the message
         :param delay: delay in milliseconds

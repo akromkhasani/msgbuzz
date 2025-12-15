@@ -1,6 +1,5 @@
 [project]
 name = "msgbuzz"
-version = "0.4.0"
 description = "Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Akrom Khasani", email = "akromkhasani@gmail.com" }]
@@ -11,6 +10,7 @@ classifiers = [
     "Operating System :: OS Independent",
     "License :: OSI Approved :: BSD License",
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 supabase = ["supabase~=2.25.1"]
@@ -27,3 +27,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.dynamic]
+version = { attr = "msgbuzz.__version__" }
