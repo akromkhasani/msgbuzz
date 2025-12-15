@@ -3,6 +3,7 @@ import logging
 import multiprocessing
 import signal
 import time
+from collections.abc import Sequence
 from functools import partial
 from math import ceil
 from typing import Callable
@@ -55,6 +56,7 @@ class SupabaseMessageBus(MessageBus):
         )
 
     def on2(self, *args, **kwargs):
+        # TODO: implement on2
         self.on(*args, **kwargs)
 
     def start_consuming(self):
@@ -137,7 +139,7 @@ class SupabaseConsumer(multiprocessing.Process):
                 },
             ).execute()
 
-            if resp.data:
+            if resp.data and isinstance(resp.data, Sequence):
                 with cf.ThreadPoolExecutor(max_workers) as executor:
                     list(executor.map(process_data_fn, resp.data))
 
@@ -206,7 +208,7 @@ class SupabaseConsumerConfirm(ConsumerConfirm):
             },
         ).execute()
 
-    def retry(self, delay: int = 60_000, max_retries: int = 3):
+    def retry(self, delay: int = 60_000, max_retries: int = 3, ack: bool = True):
         delay = max(delay, 0)
         max_retries = max(max_retries, 1)
 
@@ -223,4 +225,6 @@ class SupabaseConsumerConfirm(ConsumerConfirm):
                 "sleep_seconds": ceil(delay / 1000),
             },
         ).execute()
-        return self.ack()
+        if ack:
+            self.ack()
+        return

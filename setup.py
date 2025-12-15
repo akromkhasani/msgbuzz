@@ -16,6 +16,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=open("requirements.txt", "r").readlines(),
-    extras_require={"supabase": ["supabase~=2.15.1"]},
+    extras_require={"supabase": ["supabase~=2.25.1"]},
     python_requires=">=3.9",
 )
