@@ -190,25 +190,25 @@ class SupabaseConsumer(multiprocessing.Process):
                 ),
             )
 
-        while True:
-            if breaker["break"]:
-                break
+        with cf.ThreadPoolExecutor(max_workers) as executor:
+            while True:
+                if breaker["break"]:
+                    break
 
-            resp = client.rpc(
-                "read",
-                {
-                    "queue_name": self.topic_name,
-                    "sleep_seconds": self.message_timeout,
-                    "n": self.batch_size,
-                },
-            ).execute()
+                resp = client.rpc(
+                    "read",
+                    {
+                        "queue_name": self.topic_name,
+                        "sleep_seconds": self.message_timeout,
+                        "n": self.batch_size,
+                    },
+                ).execute()
 
-            if resp.data and isinstance(resp.data, Sequence):
-                with cf.ThreadPoolExecutor(max_workers) as executor:
+                if resp.data and isinstance(resp.data, Sequence):
                     list(executor.map(process_data_fn, resp.data))
 
-            else:
-                time.sleep(self.check_interval)
+                else:
+                    time.sleep(self.check_interval)
 
         _logger.info(f"Consumer stopped")
 
