@@ -64,6 +64,7 @@ class SupabaseMessageBus(MessageBus):
         if consumer_count == 0:
             return
 
+        consumers = []
         for topic_name, (
             callback,
             check_interval,
@@ -85,7 +86,53 @@ class SupabaseMessageBus(MessageBus):
                 consumer.run()
             else:
                 # multiple consumers use child process
+                consumers.append(consumer)
                 consumer.start()
+
+        if consumers:
+            prev_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(
+                signal.SIGINT,
+                partial(
+                    parent_signal_handler,
+                    procs=consumers,
+                    prev_handler=prev_sigint_handler,
+                ),
+            )
+            if hasattr(signal, "SIGTERM"):
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(
+                    signal.SIGTERM,
+                    partial(
+                        parent_signal_handler,
+                        procs=consumers,
+                        prev_handler=prev_sigterm_handler,
+                    ),
+                )
+
+
+def parent_signal_handler(
+    signum,
+    frame,
+    procs,
+    prev_handler=None,
+    timeout: int = 5,
+):
+    _logger.warning("Stopping subprocesses...")
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        p.join(timeout)
+    for p in procs:
+        if p.is_alive():
+            p.kill()
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class SupabaseConsumer(multiprocessing.Process):
@@ -123,8 +170,25 @@ class SupabaseConsumer(multiprocessing.Process):
         )
 
         breaker = {"break": False}
-        signal.signal(signal.SIGTERM, partial(signal_handler, breaker=breaker))
-        signal.signal(signal.SIGINT, partial(signal_handler, breaker=breaker))
+        prev_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(
+            signal.SIGINT,
+            partial(
+                child_signal_handler,
+                breaker=breaker,
+                prev_handler=prev_sigint_handler,
+            ),
+        )
+        if hasattr(signal, "SIGTERM"):
+            prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            signal.signal(
+                signal.SIGTERM,
+                partial(
+                    child_signal_handler,
+                    breaker=breaker,
+                    prev_handler=prev_sigterm_handler,
+                ),
+            )
 
         while True:
             if breaker["break"]:
@@ -177,10 +241,17 @@ class SupabaseConsumer(multiprocessing.Process):
         return False
 
 
-def signal_handler(signum, frame, breaker: dict):
-    _logger.warning(f"Received signal {signal.Signals(signum).name}")
-    if signum in (signal.SIGTERM, signal.SIGINT):
+def child_signal_handler(signum, frame, breaker: dict | None = None, prev_handler=None):
+    _logger.warning("Stopping consumer...")
+    if breaker is not None:
         breaker["break"] = True
+
+    if callable(prev_handler):
+        prev_handler(signum, frame)
+    elif prev_handler == signal.SIG_DFL:
+        _signal = signal.Signals(signum)
+        signal.signal(_signal, signal.SIG_DFL)
+        signal.raise_signal(_signal)
 
 
 class SupabaseConsumerConfirm(ConsumerConfirm):
