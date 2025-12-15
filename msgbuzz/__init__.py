@@ -1,2 +1,1 @@
-from .generic import MessageBus
-from .generic import ConsumerConfirm
+from .generic import ConsumerConfirm, MessageBus
