@@ -11,23 +11,23 @@ Instantiate `msgbuzz.rabbitmq.RabbitMqMessageBus` to start publishing and consum
 
 ## Publishing to topic
 
-Publish new message to `profile.new` topic
+Publish new message to `topic` topic
 
 ```python
 from msgbuzz.rabbitmq import RabbitMqMessageBus
 
 if __name__ == '__main__':
-    msg_bus = RabbitMqMessageBus(host='localhost')
+    msg_bus = RabbitMqMessageBus()
 
     for i in range(2):
-        msg_bus.publish('profile.new', f'Message {i + 1} !!'.encode())
+        msg_bus.publish('topic', f'Message {i + 1} !!'.encode())
 
 
 ```
 
 ## Subscribing to topic
 
-Subscribe for `profile.new` topic and print the message. 
+Subscribe for `topic` topic and print the message. 
 
 > Note:
 >
@@ -47,9 +47,9 @@ def print_message(op: ConsumerConfirm, message: bytes):
 
 
 if __name__ == '__main__':
-    msg_broker = RabbitMqMessageBus(host='localhost')
+    msg_broker = RabbitMqMessageBus()
 
-    msg_broker.on("profile.new", 'job-norm', print_message)
+    msg_broker.on("topic", 'worker', print_message)
     
     msg_broker.start_consuming()
 

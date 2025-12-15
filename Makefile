@@ -1,6 +1,6 @@
 
 init:
-	pip install -r requirements.txt
+	uv sync
 
 test:
 	python -m unittest discover -s tests -v
