@@ -48,6 +48,11 @@ class SupabaseMessageBus(MessageBus):
         max_threads: int = 1,
         **kwargs,
     ):
+        """
+        Register callback fuction as consumer to a topic.
+
+        client_group arg is not used in this implementation.
+        """
         self._subscribers[topic_name] = (
             callback,
             check_interval_seconds,
