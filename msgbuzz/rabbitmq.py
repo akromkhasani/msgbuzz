@@ -82,7 +82,12 @@ class RabbitMqMessageBus(MessageBus):
         max_priority: int | None = None,
         **kwargs,
     ):
-        self._subscribers[topic_name] = (client_group, callback, workers, max_priority)
+        self._subscribers[topic_name] = (
+            client_group,
+            callback,
+            max(1, workers),
+            max_priority,
+        )
 
     def on2(
         self,
@@ -93,7 +98,12 @@ class RabbitMqMessageBus(MessageBus):
         max_priority: int | None = None,
         **kwargs,
     ):
-        self._subscribers2[topic_name] = (client_group, callback, workers, max_priority)
+        self._subscribers2[topic_name] = (
+            client_group,
+            callback,
+            max(1, workers),
+            max_priority,
+        )
 
     def start_consuming(self):
         if not self._subscribers and not self._subscribers2:
