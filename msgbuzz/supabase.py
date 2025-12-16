@@ -43,9 +43,10 @@ class SupabaseMessageBus(MessageBus):
         topic_name: str,
         client_group: str,
         callback: CallbackType,
-        check_interval_seconds: int = 5,
+        workers: int = 1,
         batch_size: int = 1,
         max_threads: int = 1,
+        check_interval_seconds: int = 5,
         **kwargs,
     ):
         """
@@ -55,9 +56,10 @@ class SupabaseMessageBus(MessageBus):
         """
         self._subscribers[topic_name] = (
             callback,
-            check_interval_seconds,
+            max(1, workers),
             max(1, batch_size),
             max(1, max_threads),
+            max(1, check_interval_seconds),
         )
 
     def on2(self, *args, **kwargs):
@@ -65,36 +67,38 @@ class SupabaseMessageBus(MessageBus):
         self.on(*args, **kwargs)
 
     def start_consuming(self):
-        consumer_count = len(self._subscribers)
-        if consumer_count == 0:
+        if not self._subscribers:
             return
 
-        consumers = []
+        consumers: list[SupabaseConsumer] = []
         for topic_name, (
             callback,
-            check_interval,
+            workers,
             batch_size,
             max_threads,
+            check_interval,
         ) in self._subscribers.items():
-            consumer = SupabaseConsumer(
-                self.supabase_url,
-                self.supabase_key,
-                topic_name,
-                callback,
-                self.message_timeout,
-                check_interval,
-                batch_size,
-                max_threads,
-            )
-            if consumer_count == 1:
-                # one consumer just use current process
-                consumer.run()
-            else:
-                # multiple consumers use child process
+            for _ in range(workers):
+                consumer = SupabaseConsumer(
+                    self.supabase_url,
+                    self.supabase_key,
+                    topic_name,
+                    callback,
+                    self.message_timeout,
+                    check_interval,
+                    batch_size,
+                    max_threads,
+                )
                 consumers.append(consumer)
-                consumer.start()
 
-        if consumers:
+        # one consumer: use current process
+        # many consumers: use subprocesses
+        if len(consumers) == 1:
+            consumers[0].run()
+        else:
+            for c in consumers:
+                c.start()
+
             prev_sigint_handler = signal.getsignal(signal.SIGINT)
             signal.signal(
                 signal.SIGINT,
