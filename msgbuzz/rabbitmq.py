@@ -191,7 +191,12 @@ class RabbitMqMessageBus(MessageBus):
             routing_key="",
             body=message,
             properties=BasicProperties(
-                delivery_mode=2 if persistent else 1, priority=priority
+                content_type=kwargs.get("content_type"),
+                content_encoding=kwargs.get("content_encoding"),
+                headers=kwargs.get("headers"),
+                delivery_mode=2 if persistent else 1,
+                priority=priority,
+                expiration=kwargs.get("expiration"),
             ),
         )
         channel.close()
