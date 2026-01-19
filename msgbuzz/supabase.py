@@ -63,7 +63,6 @@ class SupabaseMessageBus(MessageBus):
         )
 
     def on2(self, *args, **kwargs):
-        # TODO: implement on2
         self.on(*args, **kwargs)
 
     def start_consuming(self):
