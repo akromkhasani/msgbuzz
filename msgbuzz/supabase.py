@@ -28,13 +28,13 @@ class SupabaseMessageBus(MessageBus):
         self.supabase_key = supabase_key
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
-    
+
     def close(self):
         pass
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args, **kwargs):
         self.close()
 

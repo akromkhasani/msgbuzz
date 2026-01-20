@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Callable
+from typing import Any, Callable
 
 
 class ConsumerConfirm:
@@ -27,6 +27,17 @@ CallbackType = Callable[[ConsumerConfirm, bytes], None]
 
 
 class MessageBus:
+    @abstractmethod
+    def close(self):
+        pass
+
+    @abstractmethod
+    def __enter__(self) -> Any:
+        pass
+
+    @abstractmethod
+    def __exit__(self, *args, **kwargs):
+        pass
 
     @abstractmethod
     def publish(self, topic_name: str, message: bytes, **kwargs):
