@@ -44,6 +44,15 @@ class RabbitMqMessageBus(MessageBus):
             self.__credentials = pika.PlainCredentials(username, password)
         return self.__credentials
 
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
     def publish(
         self,
         topic_name,

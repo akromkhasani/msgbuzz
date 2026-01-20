@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from typing import Any, Callable
 
 
 class ConsumerConfirm:
@@ -17,23 +18,37 @@ class ConsumerConfirm:
         Retry the message
         :param delay: delay in milliseconds
         :param max_retries: max retry attempt
-        :return:
+        :param ack: ack original message after retry
         """
         pass
 
 
+CallbackType = Callable[[ConsumerConfirm, bytes], None]
+
+
 class MessageBus:
-
     @abstractmethod
-    def publish(self, topic_name, message: bytes, **kwargs):
+    def close(self):
         pass
 
     @abstractmethod
-    def on(self, topic_name, client_group, callback, **kwargs):
+    def __enter__(self) -> Any:
         pass
 
     @abstractmethod
-    def on2(self, topic_name, client_group, callback, **kwargs):
+    def __exit__(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def publish(self, topic_name: str, message: bytes, **kwargs):
+        pass
+
+    @abstractmethod
+    def on(self, topic_name: str, client_group: str, callback: CallbackType, **kwargs):
+        pass
+
+    @abstractmethod
+    def on2(self, topic_name: str, client_group: str, callback: CallbackType, **kwargs):
         pass
 
     @abstractmethod
