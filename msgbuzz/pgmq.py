@@ -39,7 +39,16 @@ class PgmqMessageBus(MessageBus):
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
 
-    def publish(self, topic_name: str, message: bytes, **kwargs):
+    def publish(
+        self,
+        topic_name: str,
+        message: bytes,
+        create_exchange: bool = False,
+        unlogged: bool = False,
+        **kwargs,
+    ):
+        if create_exchange:
+            self.client.create_queue(topic_name, unlogged=unlogged)
         self.client.send(topic_name, {"_body": message.decode("utf-8")})
 
     def on(
@@ -167,6 +176,7 @@ class PgmqConsumer(multiprocessing.Process):
         check_interval: int,
         batch_size: int,
         max_threads: int,
+        unlogged: bool = False,
     ):
         super().__init__()
         self.connection_string = connection_string
@@ -176,6 +186,7 @@ class PgmqConsumer(multiprocessing.Process):
         self.check_interval = check_interval
         self.batch_size = batch_size
         self.max_threads = max_threads
+        self.unlogged = unlogged
 
     def run(self):
         if self.connection_string:
@@ -192,6 +203,8 @@ class PgmqConsumer(multiprocessing.Process):
             )
         else:
             client = Client()
+
+        self.register_queue(client)
 
         max_workers = min(self.batch_size, self.max_threads)
         process_data_fn = partial(self.process_data, client)
@@ -239,6 +252,9 @@ class PgmqConsumer(multiprocessing.Process):
                     time.sleep(self.check_interval)
 
         _logger.info(f"Consumer stopped")
+
+    def register_queue(self, client: Client):
+        client.create_queue(self.topic_name, unlogged=self.unlogged)
 
     def process_data(self, client: Client, msg_obj: PgmqMessage) -> None:
         message = msg_obj.message
