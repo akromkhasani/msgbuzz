@@ -1,4 +1,3 @@
-
 init:
 	uv sync --all-extras --no-install-project
 

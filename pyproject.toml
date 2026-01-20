@@ -13,7 +13,8 @@ classifiers = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-supabase = ["supabase~=2.25.1"]
+supabase = ["supabase~=2.27.2"]
+pgmq = ["pgmq~=1.0.2"]
 
 [project.urls]
 Homepage = "https://github.com/akromkhasani/msgbuzz"

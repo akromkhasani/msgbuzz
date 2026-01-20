@@ -1,6 +1,6 @@
 # Msgbuzz
 
-Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue.
+Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue, PgMQ.
 
 # Usage
 

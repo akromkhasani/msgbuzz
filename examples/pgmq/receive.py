@@ -2,7 +2,7 @@ import logging
 import os
 
 from msgbuzz import ConsumerConfirm
-from msgbuzz.rabbitmq import RabbitMqMessageBus
+from msgbuzz.pgmq import PgmqMessageBus
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)-5.5s %(name)s: %(message)s",
         level=os.getenv("LOG_LEVEL", "DEBUG").upper(),
     )
-    logging.getLogger("pika").setLevel(logging.ERROR)
+    logging.getLogger("psycopg").setLevel(logging.ERROR)
 
-    with RabbitMqMessageBus() as msg_bus:
+    with PgmqMessageBus() as msg_bus:
         msg_bus.on("topic", "worker", handle_message)
         msg_bus.start_consuming()

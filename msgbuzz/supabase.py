@@ -29,6 +29,15 @@ class SupabaseMessageBus(MessageBus):
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
 
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
     def publish(self, topic_name: str, message: bytes, **kwargs):
         self.client.rpc(
             "send",
@@ -63,7 +72,6 @@ class SupabaseMessageBus(MessageBus):
         )
 
     def on2(self, *args, **kwargs):
-        # TODO: implement on2
         self.on(*args, **kwargs)
 
     def start_consuming(self):

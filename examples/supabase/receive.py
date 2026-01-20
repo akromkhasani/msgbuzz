@@ -23,8 +23,7 @@ if __name__ == "__main__":
 
     supabase_url = ""
     supabase_key = ""
-    msg_bus = SupabaseMessageBus(supabase_url, supabase_key)
 
-    msg_bus.on("topic", "worker", handle_message)
-
-    msg_bus.start_consuming()
+    with SupabaseMessageBus(supabase_url, supabase_key) as msg_bus:
+        msg_bus.on("topic", "worker", handle_message)
+        msg_bus.start_consuming()

@@ -1,7 +1,7 @@
 import logging
 import os
 
-from msgbuzz.supabase import SupabaseMessageBus
+from msgbuzz.pgmq import PgmqMessageBus
 
 logger = logging.getLogger(__name__)
 
@@ -10,14 +10,9 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)-5.5s %(name)s: %(message)s",
         level=os.getenv("LOG_LEVEL", "DEBUG").upper(),
     )
-    logging.getLogger("hpack").setLevel(logging.ERROR)
-    logging.getLogger("httpcore").setLevel(logging.ERROR)
-    logging.getLogger("httpx").setLevel(logging.ERROR)
+    logging.getLogger("psycopg").setLevel(logging.ERROR)
 
-    supabase_url = ""
-    supabase_key = ""
-
-    with SupabaseMessageBus(supabase_url, supabase_key) as msg_bus:
+    with PgmqMessageBus() as msg_bus:
         for _i in range(5):
             i = _i + 1
             logger.debug("Message %d published", i)

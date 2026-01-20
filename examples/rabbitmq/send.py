@@ -12,9 +12,8 @@ if __name__ == "__main__":
     )
     logging.getLogger("pika").setLevel(logging.ERROR)
 
-    msg_bus = RabbitMqMessageBus()
-
-    for _i in range(5):
-        i = _i + 1
-        logger.debug("Message %d published", i)
-        msg_bus.publish("topic", f"Message {i}".encode("utf-8"))
+    with RabbitMqMessageBus() as msg_bus:
+        for _i in range(5):
+            i = _i + 1
+            logger.debug("Message %d published", i)
+            msg_bus.publish("topic", f"Message {i}".encode("utf-8"))
