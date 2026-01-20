@@ -8,11 +8,22 @@ from math import ceil
 from urllib.parse import urlparse
 
 from pgmq import Message as PgmqMessage
-from pgmq import PGMQueue as Client
+from pgmq import PGMQueue
 
 from .generic import CallbackType, ConsumerConfirm, MessageBus
 
 _logger = logging.getLogger(__name__)
+
+
+class Client(PGMQueue):
+    def close(self):
+        self.pool.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
 
 
 class PgmqMessageBus(MessageBus):
@@ -38,6 +49,15 @@ class PgmqMessageBus(MessageBus):
         self.connection_string = connection_string
         self.message_timeout = message_timeout_seconds
         self._subscribers = {}
+
+    def close(self):
+        self.client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
 
     def publish(
         self,
@@ -204,52 +224,55 @@ class PgmqConsumer(multiprocessing.Process):
         else:
             client = Client()
 
-        self.register_queue(client)
+        try:
+            self.register_queue(client)
 
-        max_workers = min(self.batch_size, self.max_threads)
-        process_data_fn = partial(self.process_data, client)
+            max_workers = min(self.batch_size, self.max_threads)
+            process_data_fn = partial(self.process_data, client)
 
-        _logger.info(
-            f"Waiting incoming message for topic: {self.topic_name}. To exit press Ctrl+C"
-        )
+            _logger.info(
+                f"Waiting incoming message for topic: {self.topic_name}. To exit press Ctrl+C"
+            )
 
-        breaker = {"break": False}
-        prev_sigint_handler = signal.getsignal(signal.SIGINT)
-        signal.signal(
-            signal.SIGINT,
-            partial(
-                child_signal_handler,
-                breaker=breaker,
-                prev_handler=prev_sigint_handler,
-            ),
-        )
-        if hasattr(signal, "SIGTERM"):
-            prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            breaker = {"break": False}
+            prev_sigint_handler = signal.getsignal(signal.SIGINT)
             signal.signal(
-                signal.SIGTERM,
+                signal.SIGINT,
                 partial(
                     child_signal_handler,
                     breaker=breaker,
-                    prev_handler=prev_sigterm_handler,
+                    prev_handler=prev_sigint_handler,
                 ),
             )
-
-        with cf.ThreadPoolExecutor(max_workers) as executor:
-            while True:
-                if breaker["break"]:
-                    break
-
-                data: list[PgmqMessage] | None = client.read_batch(
-                    queue=self.topic_name,
-                    vt=self.message_timeout,
-                    batch_size=self.batch_size,
+            if hasattr(signal, "SIGTERM"):
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(
+                    signal.SIGTERM,
+                    partial(
+                        child_signal_handler,
+                        breaker=breaker,
+                        prev_handler=prev_sigterm_handler,
+                    ),
                 )
 
-                if data:
-                    list(executor.map(process_data_fn, data))
+            with cf.ThreadPoolExecutor(max_workers) as executor:
+                while True:
+                    if breaker["break"]:
+                        break
 
-                else:
-                    time.sleep(self.check_interval)
+                    data: list[PgmqMessage] | None = client.read_batch(
+                        queue=self.topic_name,
+                        vt=self.message_timeout,
+                        batch_size=self.batch_size,
+                    )
+
+                    if data:
+                        list(executor.map(process_data_fn, data))
+
+                    else:
+                        time.sleep(self.check_interval)
+        finally:
+            client.close()
 
         _logger.info(f"Consumer stopped")
 
