@@ -87,6 +87,7 @@ class PgmqMessageBus(MessageBus):
 
         client_group arg is not used in this implementation.
         """
+        del client_group
         self._subscribers[topic_name] = (
             callback,
             max(1, workers),
