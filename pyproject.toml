@@ -1,10 +1,10 @@
 [project]
 name = "msgbuzz"
-description = "Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue."
+description = "Generic message bus abstraction. Supported implementation: RabbitMQ, Supabase Queue, PgMQ."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Akrom Khasani", email = "akromkhasani@gmail.com" }]
-requires-python = ">=3.9"
-dependencies = ["pika~=1.3.2"]
+requires-python = ">=3.11"
+dependencies = ["pika~=1.4.4"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -13,14 +13,14 @@ classifiers = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-supabase = ["supabase~=2.27.2"]
-pgmq = ["pgmq~=1.0.2"]
+supabase = ["supabase~=2.34.1"]
+pgmq = ["pgmq~=1.1.4"]
 
 [project.urls]
 Homepage = "https://github.com/akromkhasani/msgbuzz"
 
 [build-system]
-requires = ["setuptools~=80.9.0", "wheel~=0.45.1"]
+requires = ["setuptools~=84.2.1", "wheel~=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
