@@ -417,6 +417,7 @@ class RabbitMqConsumer2(RabbitMqConsumer):
                 continue
 
             if RabbitMqConsumer.message_expired(properties):
+                assert isinstance(method.delivery_tag, int)
                 channel.basic_nack(method.delivery_tag, requeue=False)
                 continue
 
@@ -503,12 +504,16 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
         self._conn = conn
 
     def ack(self):
+        assert isinstance(self._delivery.delivery_tag, int)
+
         def cb():
             self._channel.basic_ack(delivery_tag=self._delivery.delivery_tag)
 
         self._conn.add_callback_threadsafe(cb)
 
     def nack(self):
+        assert isinstance(self._delivery.delivery_tag, int)
+
         def cb():
             self._channel.basic_nack(
                 delivery_tag=self._delivery.delivery_tag, requeue=False
@@ -517,6 +522,9 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
         self._conn.add_callback_threadsafe(cb)
 
     def retry(self, delay=60000, max_retries=3, ack: bool = True):
+        if ack:
+            assert isinstance(self._delivery.delivery_tag, int)
+
         def cb():
             # publish to retry queue
             self._properties.expiration = str(delay)
@@ -530,7 +538,7 @@ class RabbitMqConsumerConfirm(ConsumerConfirm):
             )
 
             if ack:
-                # ack
+                # pyrefly: ignore[bad-argument-type]
                 self._channel.basic_ack(delivery_tag=self._delivery.delivery_tag)
 
         self._conn.add_callback_threadsafe(cb)

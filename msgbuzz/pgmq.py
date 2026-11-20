@@ -17,7 +17,8 @@ _logger = logging.getLogger(__name__)
 
 class Client(PGMQueue):
     def close(self):
-        self.pool.close()
+        if self.pool:
+            self.pool.close()
 
     def __enter__(self):
         return self
