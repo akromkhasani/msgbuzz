@@ -4,7 +4,7 @@ description = "Generic message bus abstraction. Supported implementation: Rabbit
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Akrom Khasani", email = "akromkhasani@gmail.com" }]
 requires-python = ">=3.11"
-dependencies = ["pika~=1.4.4"]
+dependencies = ["pika~=1.5.0"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -14,7 +14,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 supabase = ["supabase~=2.34.1"]
-pgmq = ["pgmq~=1.1.4"]
+pgmq = ["pgmq~=1.1.5"]
 
 [project.urls]
 Homepage = "https://github.com/akromkhasani/msgbuzz"
@@ -29,3 +29,19 @@ exclude = ["tests", "tests*", "examples", "examples*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "msgbuzz.__version__" }
+
+[dependency-groups]
+dev = ["pytest~=9.2.0", "pytest-cov~=7.1.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--cov"
+
+[tool.coverage.run]
+branch = true
+source = ["msgbuzz"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90

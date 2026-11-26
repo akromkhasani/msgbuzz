@@ -404,9 +404,9 @@ class RabbitMqConsumer2(RabbitMqConsumer):
             if breaker["break"]:
                 break
 
-            get_resp: tuple[
-                Basic.GetOk | None, BasicProperties | None, bytes | None
-            ] = channel.basic_get(self._name_generator.queue_name())
+            get_resp: (
+                tuple[Basic.GetOk | None, BasicProperties | None, bytes | None] | None
+            ) = channel.basic_get(self._name_generator.queue_name())
             if not get_resp:
                 sleep(1)
                 continue
